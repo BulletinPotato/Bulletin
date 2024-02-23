@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snake Online</title>
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            text-align: center;
+            background-color: #222; /* Dark mode background color */
+            color: #00ff00; /* Dark mode text color */
+        }
+        canvas {
+            display: block;
+            margin: auto;
+            border: 1px solid #00ff00;
+        }
+        #score {
+            font-size: 20px;
+            margin-top: 10px;
+        }
+        #settingsIcon {
+            font-size: 24px;
+            color: #00ff00;
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+            z-index: 3;
+        }
+        #gameTitle {
+            font-size: 24px;
+            margin-top: 10px;
+        }
+        #cheatText {
+            color: yellow;
+            font-size: 14px;
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            animation: spin 5s linear infinite;
+            visibility: hidden;
+        }
+        #settingsModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 2;
+        }
+        .modal-content {
+            background-color: #333;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: left;
+        }
+        .close {
+            color: #fff;
+            float: right;
+            font-size: 20px;
+            cursor: pointer;
+        }
+        /* Custom style for select element */
+        select {
+            appearance: none;
+            background-color: #00ff00; /* Button background color */
+            color: #222; /* Button text color */
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+        }
+        /* Rest of the CSS remains unchanged */
+    </style>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+</head>
+<body>
+    <div id="gameTitle">Snake Online</div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="score">Score: 0 | High Score: 0</div>
+    <div id="settingsIcon" onclick="toggleSettings()">S</div>
+
+    <div id="settingsModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeSettings()">&times;</span>
+            <h2>Settings</h2>
+            <label for="difficulty">Difficulty:</label>
+            <select id="difficulty" onchange="setDifficulty()">
+                <option value="easy">Easy</option>
+                <option value="normal" selected>Normal</option>
+                <option value="hard">Hard</option>
+            </select>
+            <br>
+            <label for="mode">Mode:</label>
+            <select id="mode" onchange="setMode()">
+                <option value="1-player" selected>1 Player</option>
+                <option value="2-player">2 Players</option>
+            </select>
+            <br>
+            <label for="lives">Lives:</label>
+            <select id="lives" onchange="setLives()">
+                <option value="1">1 Life</option>
+                <option value="2" selected>2 Lives</option>
+            </select>
+            <br>
+            <label for="loop">Loop to Other Side:</label>
+            <select id="loop" onchange="setLoop()">
+                <option value="true">On</option>
+                <option value="false" selected>Off</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Game Over Menu -->
+    <div id="gameOverMenu">
+        <div id="gameOverText"></div>
+        <button id="restartButton" onclick="restartGame()">Restart</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let snakeSize = 20;
+        let player1 = { snake: [{ x: 10, y: 10 }], direction: "right" };
+        let player2 = { snake: [{ x: 15, y: 15 }], direction: "left", visible: true };
+        let apples = [];
+        let score = 0;
+        let highScore = localStorage.getItem("highScore") || 0;
+        let darkMode = true;
+        let difficulty = "normal";
+        let mode = "1-player";
+        let lives = 2;
+        let loopToOtherSide = false;
+        let paused = false;
+
+        function drawSnakes() {
+            ctx.fillStyle = "#00ff00"; // Green color for Player 1
+            player1.snake.forEach(segment => {
+                ctx.fillRect(segment.x * snakeSize, segment.y * snakeSize, snakeSize, snakeSize);
+            });
+
+            if (mode === "2-player" && player2.visible) {
+                ctx.fillStyle = "#ffcc00"; // Yellow color for Player 2
+                player2.snake.forEach(segment => {
+                    ctx.fillRect(segment.x * snakeSize, segment.y * snakeSize, snakeSize, snakeSize);
+                });
+            }
+        }
+
+        function drawApples() {
+            ctx.fillStyle = "#FF0000"; // Red apple
+            apples.forEach(apple => {
+                ctx.fillRect(apple.x * snakeSize, apple.y * snakeSize, snakeSize, snakeSize);
+            });
+        }
+
+        function moveSnakes() {
+            if (paused) return;
+
+            moveSnake(player1);
+
+            if (mode === "2-player" && player2.visible) {
+                moveSnake(player2);
+            }
+        }
+
+        function moveSnake(player) {
+            const head = { ...player.snake[0] };
+            switch (player.direction) {
+                case "up": head.y--; break;
+                case "down": head.y++; break;
+                case "left": head.x--; break;
+                case "right": head.x++; break;
+            }
+
+            if (!loopToOtherSide) {
+                if (head.x < 0 || head.x >= canvas.width / snakeSize || head.y < 0 || head.y >= canvas.height / snakeSize) {
+                    handleCollision(player);
+                    return;
+                }
+            } else {
+                if (head.x < 0) head.x = canvas.width / snakeSize - 1;
+                if (head.x >= canvas.width / snakeSize) head.x = 0;
+                if (head.y < 0) head.y = canvas.height / snakeSize - 1;
+                if (head.y >= canvas.height / snakeSize) head.y = 0;
+            }
+
+            if (player.snake.some(segment => segment.x === head.x && segment.y === head.y)) {
+                handleCollision(player);
+                return;
+            }
+
+            player.snake.unshift(head);
+
+            const eatenAppleIndex = apples.findIndex(apple => apple.x === head.x && apple.y === head.y);
+            if (eatenAppleIndex !== -1) {
+                apples.splice(eatenAppleIndex, 1);
+                spawnApple();
+                score++;
+                updateScore();
+            } else {
+                player.snake.pop();
+            }
+        }
+
+        function handleCollision(player) {
+            if (lives > 1) {
+                lives--;
+                resetSnakes();
+            } else {
+                gameOver();
+            }
+        }
+
+        function resetSnakes() {
+            player1.snake = [{ x: 10, y: 10 }];
+            player1.direction = "right";
+            player2.snake = [{ x: 15, y: 15 }];
+            player2.direction = "left";
+        }
+
+        function spawnApple() {
+            const newApple = { x: Math.floor(Math.random() * (canvas.width / snakeSize)), y: Math.floor(Math.random() * (canvas.height / snakeSize)) };
+            apples.push(newApple);
+        }
+
+        function gameOver() {
+            // Display game over menu
+            document.getElementById("gameOverText").textContent = "YOU DIED\nScore: " + score;
+            document.getElementById("gameOverMenu").style.display = "block";
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Reset score to 0
+            score = 0;
+            updateScore();
+            // Pause the game
+            paused = true;
+        }
+
+        function updateScore() {
+            // Update the high score if the current score is higher
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem("highScore", highScore);
+            }
+            // Display the current score and high score
+            document.getElementById("score").textContent = "Score: " + score + " | High Score: " + highScore;
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            moveSnakes();
+            drawSnakes();
+            drawApples();
+        }
+
+        let gameInterval;
+
+        function startGame() {
+            resetSnakes();
+            apples = [];
+            clearInterval(gameInterval);
+            gameInterval = setInterval(gameLoop, getSpeed());
+            updateScore();
+            spawnApple();
+            paused = false;
+            // Hide game over menu
+            document.getElementById("gameOverMenu").style.display = "none";
+        }
+
+        function toggleDarkMode() {
+            darkMode = !darkMode;
+            document.body.style.backgroundColor = darkMode ? "#222" : "#fff";
+            document.body.style.color = darkMode ? "#00ff00" : "#000";
+            document.getElementById("gameCanvas").style.border = darkMode ? "1px solid #00ff00" : "1px solid #000";
+        }
+
+        function toggleSettings() {
+            document.getElementById("settingsModal").style.display = "flex";
+            pauseGame();
+        }
+
+        function closeSettings() {
+            document.getElementById("settingsModal").style.display = "none";
+            resumeGame();
+        }
+
+        function pauseGame() {
+            paused = true;
+        }
+
+        function resumeGame() {
+            paused = false;
+        }
+
+        function restartGame() {
+            // Hide game over menu
+            document.getElementById("gameOverMenu").style.display = "none";
+            startGame();
+        }
+
+        function setDifficulty() {
+            difficulty = document.getElementById("difficulty").value;
+            startGame();
+        }
+
+        function setMode() {
+            mode = document.getElementById("mode").value;
+            if (mode === "1-player") {
+                player2.visible = false;
+            } else {
+                player2.visible = true;
+            }
+            startGame();
+        }
+
+        function setLives() {
+            lives = parseInt(document.getElementById("lives").value);
+        }
+
+        function setLoop() {
+            loopToOtherSide = document.getElementById("loop").value === "true";
+        }
+
+        function getSpeed() {
+            switch (difficulty) {
+                case "easy": return 200;
+                case "normal": return 100;
+                case "hard": return 50;
+                default: return 100;
+            }
+        }
+
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "ArrowUp") {
+                player1.direction = "up";
+            } else if (event.key === "ArrowDown") {
+                player1.direction = "down";
+            } else if (event.key === "ArrowLeft") {
+                player1.direction = "left";
+            } else if (event.key === "ArrowRight") {
+                player1.direction = "right";
+            }
+
+            if (mode === "2-player" && player2.visible) {
+                if (event.key.toLowerCase() === "w") {
+                    player2.direction = "up";
+                } else if (event.key.toLowerCase() === "s") {
+                    player2.direction = "down";
+                } else if (event.key.toLowerCase() === "a") {
+                    player2.direction = "left";
+                } else if (event.key.toLowerCase() === "d") {
+                    player2.direction = "right";
+                }
+            }
+        });
+
+        // Start the game initially
+        startGame();
+    </script>
+</body>
+</html>
